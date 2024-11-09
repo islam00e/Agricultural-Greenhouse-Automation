@@ -1,0 +1,131 @@
+#include <SoftwareSerial.h>
+SoftwareSerial mySerial(10, 11); // RX, TX pins
+
+
+int x_deviation = 0, y_deviation = 0;
+char x, y;
+
+#define MOTOR_FORWARD    5
+#define MOTOR_BACKWARD   4
+#define MOTOR_RIGHT      2
+#define MOTOR_LEFT       3
+
+
+#define TOLERANCE 2
+#define MOTOR_ON  10
+#define MOTOR_OFF 10
+
+
+#define STATE_IDLE 0
+#define STATE_RECEIVE_DATA 1
+#define STATE_CONTROL_MOTORS 2
+#define STATE_PUT_SEEDS 3
+
+char state = STATE_IDLE;
+
+void setup() {
+  pinMode(MOTOR_BACKWARD, OUTPUT);
+  pinMode(MOTOR_FORWARD, OUTPUT);
+  pinMode(MOTOR_LEFT, OUTPUT);
+  pinMode(MOTOR_RIGHT, OUTPUT);
+
+  digitalWrite(MOTOR_BACKWARD, HIGH);
+  digitalWrite(MOTOR_FORWARD, HIGH);
+  digitalWrite(MOTOR_LEFT, HIGH);
+  digitalWrite(MOTOR_RIGHT, HIGH);
+
+  Serial.begin(9600);
+  mySerial.begin(9600);
+}
+
+void loop() {
+  switch (state) {
+    case STATE_IDLE:
+      read_from_rasspberrypi();
+      break;
+
+    case STATE_RECEIVE_DATA:
+      read_from_rasspberrypi();
+      break;
+
+    case STATE_CONTROL_MOTORS:
+      controlMotors();
+      break;
+
+    case STATE_PUT_SEEDS:
+    read_from_rasspberrypi();
+      break;
+  }
+  
+}
+
+void read_from_rasspberrypi() {
+  if (mySerial.available() >= 2) {
+    x = mySerial.read();
+    y = mySerial.read();
+
+    x_deviation = static_cast<int>(x);
+    y_deviation = static_cast<int>(y);
+
+    Serial.print("X Deviation: ");
+    Serial.println(x_deviation);
+    Serial.print("Y Deviation: ");
+    Serial.println(y_deviation);
+    state = STATE_CONTROL_MOTORS;
+
+  }
+}
+
+void controlMotors() {  // Motor X control
+  if (x_deviation > TOLERANCE) {
+    digitalWrite(MOTOR_RIGHT, LOW);
+    digitalWrite(MOTOR_LEFT, HIGH);
+    delay(MOTOR_ON);
+    digitalWrite(MOTOR_RIGHT, HIGH);
+    digitalWrite(MOTOR_LEFT, HIGH);
+  } else if (x_deviation < -TOLERANCE) {
+    digitalWrite(MOTOR_RIGHT, HIGH);
+    digitalWrite(MOTOR_LEFT, LOW);
+    delay(MOTOR_ON);
+    digitalWrite(MOTOR_RIGHT, HIGH);
+    digitalWrite(MOTOR_LEFT, HIGH);
+  } else {
+    digitalWrite(MOTOR_RIGHT, HIGH);
+    digitalWrite(MOTOR_LEFT, HIGH);
+  }
+
+  // Motor Y control
+  if (y_deviation > TOLERANCE) {
+    digitalWrite(MOTOR_FORWARD, HIGH);
+    digitalWrite(MOTOR_BACKWARDT, LOW);
+    delay(MOTOR_ON);
+    digitalWrite(MOTOR_FORWARD, HIGH);
+    digitalWrite(MOTOR_BACKWARD, HIGH);
+  
+  } else if (y_deviation < -TOLERANCE) {
+    digitalWrite(MOTOR_FORWARD, LOW);
+    digitalWrite(MOTOR_BACKWARD, HIGH);
+    delay(MOTOR_ON);
+    digitalWrite(MOTOR_FORWARD, HIGH);
+    digitalWrite(MOTOR_BACKWARD, HIGH);
+  }
+   else {
+    digitalWrite(MOTOR_FORWARD, HIGH);
+    digitalWrite(MOTOR_BACKWARD, HIGH);
+  }
+
+  // Stop all motors when deviations are within tolerance
+  if (abs(x_deviation) <= TOLERANCE && abs(y_deviation) <= TOLERANCE) {
+    digitalWrite(MOTOR_FORWARD, HIGH);
+    digitalWrite(MOTOR_BACKWARD, HIGH);
+    digitalWrite(MOTOR_LEFT, HIGH);
+    digitalWrite(MOTOR_RIGHT, HIGH);
+    delay(MOTOR_OFF);
+    
+    state = STATE_PUT_SEEDS;
+  }
+  else 
+  {
+    state = STATE_RECEIVE_DATA;
+  }
+}

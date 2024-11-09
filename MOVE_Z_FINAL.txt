@@ -1,0 +1,135 @@
+#include <Servo.h>
+Servo myservo;
+
+long duration3, Dis_Z;
+
+#define MOTOR_Z_UP        6 
+#define MOTOR_Z_DOWN      7
+#define Suction_Motor     3
+#define triggerPin3       A0
+#define echoPin3          A1
+#define Servo_Pin         9
+
+#define MOTOR_Z_ON_soil   2000
+#define MOTOR_Z_OFF_soil  2000
+
+#define Servo_ANG         180
+#define Servo_ANG_RE      0
+
+char flag = 1;
+
+void setup() {
+  Serial.begin(9600);
+  pinMode(triggerPin3, OUTPUT);
+  pinMode(echoPin3, INPUT);
+  pinMode(MOTOR_Z_UP, OUTPUT);
+  pinMode(MOTOR_Z_DOWN, OUTPUT);
+  pinMode(Suction_Motor, OUTPUT);
+  myservo.attach(Servo_Pin);
+  myservo.write(Servo_ANG_RE);
+  digitalWrite(Suction_Motor, LOW);
+}
+
+void loop() {
+  UltraSonic_Read();
+  Put_Seeds();
+  UltraSonic_Read();
+}
+
+void Put_Seeds() {
+  if (flag == 1) {
+    UltraSonic_Read();
+
+    while (Dis_Z <= 60) {
+       MoveMotorUp();
+      UltraSonic_Read();
+    }
+    MoveMotorDown();
+    CheckSeeds();
+    ReturnInitPosition();
+    GetMoreSeeds();
+    ReturnFinalPosition();
+  }
+}
+
+void MoveMotorDown() {
+  digitalWrite(MOTOR_Z_UP, HIGH);
+  digitalWrite(MOTOR_Z_DOWN, LOW);
+  delay(MOTOR_Z_ON_soil);
+  digitalWrite(MOTOR_Z_UP, LOW);
+  digitalWrite(MOTOR_Z_DOWN, LOW);
+  delay(MOTOR_Z_OFF_soil);
+  digitalWrite(Suction_Motor, LOW);
+}
+
+void MoveMotorUp() {
+  digitalWrite(MOTOR_Z_UP, LOW);
+  digitalWrite(MOTOR_Z_DOWN, HIGH);
+  delay(100); // Adjust this delay as needed
+  digitalWrite(MOTOR_Z_UP, HIGH);
+  digitalWrite(MOTOR_Z_DOWN, HIGH);
+}
+
+
+void CheckSeeds() {
+  myservo.write(Servo_ANG);
+  while (Dis_Z >= 40) {
+  MoveMotorDown();
+  UltraSonic_Read();
+  digitalWrite(Suction_Motor, LOW);
+  }
+  digitalWrite(Suction_Motor, HIGH);
+}
+
+/*void GetSeeds() {
+  MoveMotorUp();
+  delay(MOTOR_Z_ON_soil);
+  digitalWrite(MOTOR_Z_DOWN, LOW);
+  digitalWrite(MOTOR_Z_UP, LOW);
+  delay(MOTOR_Z_ON_soil);
+  UltraSonic_Read();
+}
+*/
+void ReturnInitPosition() {
+  while (Dis_Z <= 63) {
+    MoveMotorUp();
+    UltraSonic_Read();
+    digitalWrite(Suction_Motor, HIGH);
+  }
+  myservo.write(Servo_ANG_RE);
+}
+
+void GetMoreSeeds() {
+  while (Dis_Z >= 30) {
+    MoveMotorDown();
+    UltraSonic_Read();
+    digitalWrite(Suction_Motor, HIGH);
+  }
+  digitalWrite(Suction_Motor, LOW);
+}
+
+void ReturnFinalPosition() {
+  while (Dis_Z <= 63) {
+     MoveMotorUp();
+    UltraSonic_Read();
+    digitalWrite(Suction_Motor, LOW);
+     myservo.write(Servo_ANG_RE);
+  }
+}
+
+
+
+void UltraSonic_Read() {
+  digitalWrite(triggerPin3, LOW);
+  delayMicroseconds(2);
+ 
+  digitalWrite(triggerPin3, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(triggerPin3, LOW);
+  duration3 = pulseIn(echoPin3, HIGH);
+  Dis_Z = (duration3 * 0.034 / 2);
+
+  Serial.print("Distance from Sensor 3: ");
+  Serial.print(Dis_Z);
+  Serial.println(" cm");
+}

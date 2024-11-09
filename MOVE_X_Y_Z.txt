@@ -1,0 +1,244 @@
+#include <SoftwareSerial.h>
+SoftwareSerial mySerial(11, 10); // RX, TX pins
+#include <Servo.h>
+Servo myservo;
+
+long duration3, Dis_Z;
+
+int x_deviation = 0, y_deviation = 0;
+char x, y;
+
+#define MOTOR_X_RIGHT 7
+#define MOTOR_X_LEFT 6
+#define MOTOR_Y_FORWARD 3
+#define MOTOR_Y_BACKWARD 2
+
+#define TOLERANCE 5
+#define MOTOR_ON 10
+#define MOTOR_OFF 10
+
+#define MOTOR_Z_UP         5
+#define MOTOR_Z_DOWN      4
+#define Suction_Motor     12
+#define triggerPin3       A1
+#define echoPin3          A0
+#define Servo_Pin         9
+
+#define MOTOR_Z_ON_soil   2000
+#define MOTOR_Z_OFF_soil  2000
+
+#define Servo_ANG         130
+#define Servo_ANG_RE      0
+
+#define STATE_IDLE 0
+#define STATE_RECEIVE_DATA 1
+#define STATE_CONTROL_MOTORS 2
+#define STATE_PUT_SEEDS 3
+
+char state = STATE_IDLE;
+
+
+void setup() {
+  pinMode(MOTOR_X_RIGHT, OUTPUT);
+  pinMode(MOTOR_X_LEFT, OUTPUT);
+  pinMode(MOTOR_Y_FORWARD, OUTPUT);
+  pinMode(MOTOR_Y_BACKWARD, OUTPUT);
+
+  digitalWrite(MOTOR_X_RIGHT, HIGH);
+  digitalWrite(MOTOR_X_LEFT, HIGH);
+  digitalWrite(MOTOR_Y_FORWARD, HIGH);
+  digitalWrite(MOTOR_Y_BACKWARD, HIGH);
+
+  pinMode(triggerPin3, OUTPUT);
+  pinMode(echoPin3, INPUT);
+  pinMode(MOTOR_Z_UP, OUTPUT);
+  pinMode(MOTOR_Z_DOWN, OUTPUT);
+  pinMode(Suction_Motor, OUTPUT);
+
+  digitalWrite(MOTOR_Z_UP, HIGH);
+  digitalWrite(MOTOR_Z_DOWN, HIGH);
+
+  
+  myservo.attach(Servo_Pin);
+  myservo.write(Servo_ANG_RE);
+  digitalWrite(Suction_Motor, LOW);
+
+  Serial.begin(9600);
+  mySerial.begin(9600);
+  //delay(2000);
+}
+
+void loop() {
+  switch (state) {
+    case STATE_IDLE:
+      read_from_rasspberrypi();
+      break;
+
+    case STATE_RECEIVE_DATA:
+      read_from_rasspberrypi();
+      break;
+
+    case STATE_CONTROL_MOTORS:
+      controlMotors();
+      break;
+
+    case STATE_PUT_SEEDS:
+      Put_Seeds();
+      break;
+  }
+  
+}
+
+void read_from_rasspberrypi() {
+  if (mySerial.available() >= 2) {
+    x = mySerial.read();
+    y = mySerial.read();
+
+    x_deviation = static_cast<int>(x);
+    y_deviation = static_cast<int>(y);
+
+    Serial.print("X Deviation: ");
+    Serial.println(x_deviation);
+    Serial.print("Y Deviation: ");
+    Serial.println(y_deviation);
+    state = STATE_CONTROL_MOTORS;
+
+  }
+}
+
+void controlMotors() {  // Motor X control
+  if (x_deviation > TOLERANCE) {
+    digitalWrite(MOTOR_X_RIGHT, HIGH);
+    digitalWrite(MOTOR_X_LEFT, LOW);
+   // delay(MOTOR_ON);
+  } else if (x_deviation < -TOLERANCE) {
+    digitalWrite(MOTOR_X_RIGHT, LOW);
+    digitalWrite(MOTOR_X_LEFT, HIGH);
+    //delay(MOTOR_ON);
+  } else {
+    digitalWrite(MOTOR_X_RIGHT, HIGH);
+    digitalWrite(MOTOR_X_LEFT, HIGH);
+  }
+
+  // Motor Y control
+  if (y_deviation > TOLERANCE) {
+    digitalWrite(MOTOR_Y_FORWARD, HIGH);
+    digitalWrite(MOTOR_Y_BACKWARD, LOW);
+   // delay(MOTOR_ON);
+  } else if (y_deviation < -TOLERANCE) {
+    digitalWrite(MOTOR_Y_FORWARD, LOW);
+    digitalWrite(MOTOR_Y_BACKWARD, HIGH);
+    delay(MOTOR_ON);
+  } else {
+    digitalWrite(MOTOR_Y_FORWARD, HIGH);
+    digitalWrite(MOTOR_Y_BACKWARD, HIGH);
+  }
+
+  // Stop all motors when deviations are within tolerance
+  if (abs(x_deviation) <= TOLERANCE && abs(y_deviation) <= TOLERANCE) {
+    digitalWrite(MOTOR_X_RIGHT, HIGH);
+    digitalWrite(MOTOR_X_LEFT, HIGH);
+    digitalWrite(MOTOR_Y_FORWARD, HIGH);
+    digitalWrite(MOTOR_Y_BACKWARD, HIGH);
+    delay(MOTOR_OFF);
+    
+    state = STATE_PUT_SEEDS;
+  }
+  else 
+  {
+    state = STATE_RECEIVE_DATA;
+  }
+}
+
+void Put_Seeds() {
+  
+    UltraSonic_Read();
+
+    while (Dis_Z <= 60) {
+      MoveMotorUp();
+      UltraSonic_Read();
+    }
+    MoveMotorDown();
+    CheckSeeds();
+    ReturnInitPosition();
+    GetMoreSeeds();
+    ReturnFinalPosition();
+  state = STATE_IDLE;
+}
+
+void MoveMotorDown() {
+  digitalWrite(MOTOR_Z_UP, HIGH);
+  digitalWrite(MOTOR_Z_DOWN, LOW);
+  delay(MOTOR_Z_ON_soil);
+  digitalWrite(MOTOR_Z_UP, LOW);
+  digitalWrite(MOTOR_Z_DOWN, LOW);
+  delay(MOTOR_Z_OFF_soil);
+  digitalWrite(Suction_Motor, LOW);
+}
+
+void MoveMotorUp() {
+  digitalWrite(MOTOR_Z_UP, LOW);
+  digitalWrite(MOTOR_Z_DOWN, HIGH);
+  delay(100); // Adjust this delay as needed
+  digitalWrite(MOTOR_Z_UP, HIGH);
+  digitalWrite(MOTOR_Z_DOWN, HIGH);
+}
+
+
+void CheckSeeds() {
+  myservo.write(Servo_ANG);
+  while (Dis_Z >= 40) {
+  MoveMotorDown();
+  UltraSonic_Read();
+  digitalWrite(Suction_Motor, LOW);
+  }
+  digitalWrite(Suction_Motor, HIGH);
+}
+void ReturnInitPosition() {
+  while (Dis_Z <= 63) {
+    MoveMotorUp();
+    UltraSonic_Read();
+    digitalWrite(Suction_Motor, HIGH);
+  }
+  myservo.write(Servo_ANG_RE);
+}
+
+void GetMoreSeeds() {
+  while (Dis_Z >= 30) {
+    MoveMotorDown();
+    UltraSonic_Read();
+    digitalWrite(Suction_Motor, HIGH);
+  }
+  digitalWrite(Suction_Motor, LOW);
+}
+
+void ReturnFinalPosition() {
+  while (Dis_Z <= 63) {
+    MoveMotorUp();
+    UltraSonic_Read();
+    digitalWrite(Suction_Motor, LOW);
+    myservo.write(Servo_ANG_RE);
+  }
+}
+
+void UltraSonic_Read() {
+  digitalWrite(triggerPin3, LOW);
+  delayMicroseconds(2);
+ 
+  digitalWrite(triggerPin3, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(triggerPin3, LOW);
+  duration3 = pulseIn(echoPin3, HIGH);
+  if(duration3==0)
+  { 
+  }
+  else
+  {
+    Dis_Z = (duration3 * 0.034 / 2);
+  }
+
+  Serial.print("Distance from Sensor 3: ");
+  Serial.print(Dis_Z);
+  Serial.println(" cm");
+
+}

@@ -1,0 +1,167 @@
+import cv2
+import numpy as np
+import time
+import RPi.GPIO as GPIO
+import serial
+
+# Constants for camera calibration (replace these with your calibrated values)
+pixels_per_mm_x = 10
+pixels_per_mm_y = 10
+
+# GPIO pins connected to the relay module
+relay_X_CW_pin  = 13  
+relay_X_CCW_pin = 15  
+relay_Y_CW_pin  = 29
+relay_Y_CCW_pin = 31
+
+# Set up GPIO mode and pins
+GPIO.setmode(GPIO.BCM)
+GPIO.setup(relay_X_CW_pin, GPIO.OUT)
+GPIO.setup(relay_X_CCW_pin, GPIO.OUT)
+GPIO.setup(relay_Y_CW_pin, GPIO.OUT)
+GPIO.setup(relay_Y_CCW_pin, GPIO.OUT)
+
+# Global variables for robot control
+x_deviation = 0
+y_deviation = 0
+tolerance = 3
+arr_track_data = []
+
+# Function to send data to Arduino
+def send_circle_data_to_arduino(circle_data):
+    # Establish serial connection with the Arduino
+    ser = serial.Serial('/dev/ttyACM0', 9600)  # Replace '/dev/ttyACM0' with the correct serial port of your Arduino
+
+    # Send the circle data to Arduino
+    for circle in circle_data:
+        diameter = circle['diameter']
+        center_x, center_y = circle['center']
+        data_to_send = f"{diameter:.2f},{center_x},{center_y}\n"  # Format the data as "diameter,center_x,center_y\n"
+        ser.write(data_to_send.encode())  # Convert the data to bytes and send to Arduino
+
+    # Close the serial connection
+    ser.close()
+
+# Function to move the robot based on deviations
+def move_robot():
+    global x_deviation, y_deviation, tolerance, arr_track_data
+
+    print("Moving robot...")
+    print(x_deviation, y_deviation, tolerance, arr_track_data)
+
+    if abs(x_deviation) < tolerance and abs(y_deviation) < tolerance:
+        # Stop all motors
+        GPIO.output(relay_X_CW_pin, 0)
+        GPIO.output(relay_X_CCW_pin, 0)
+        GPIO.output(relay_Y_CW_pin, 0)
+        GPIO.output(relay_Y_CCW_pin, 0)
+        # Notify the Arduino to continue its code
+        send_circle_data_to_arduino(1)
+    else:
+        #if abs(x_deviation) > abs(y_deviation):
+        while x_deviation > tolerance:
+             # Move left
+            GPIO.output(relay_X_CW_pin, 1)
+            GPIO.output(relay_X_CCW_pin, 0)
+            time.sleep(1.5)
+            # Stop
+            GPIO.output(relay_X_CW_pin, 0)
+            GPIO.output(relay_X_CCW_pin, 0)
+            detect_one_circle_from_webcam(min_radius, max_radius)
+               
+        while x_deviation < -1 * tolerance:
+                # Move right
+            GPIO.output(relay_X_CW_pin, 0)
+            GPIO.output(relay_X_CCW_pin, 1)
+            time.sleep(1.5)
+            # Stop
+            GPIO.output(relay_X_CW_pin, 0)
+            GPIO.output(relay_X_CCW_pin, 0)
+            detect_one_circle_from_webcam(min_radius, max_radius)
+
+        while y_deviation > tolerance:
+            # Move forward
+            GPIO.output(relay_Y_CW_pin, 1)
+            GPIO.output(relay_Y_CCW_pin, 0)
+            time.sleep(1.5)
+            # Stop
+            GPIO.output(relay_Y_CW_pin, 0)
+            GPIO.output(relay_Y_CCW_pin, 0)
+            detect_one_circle_from_webcam(min_radius, max_radius)
+        while y_deviation < -1 * tolerance:
+            # Move backward
+            GPIO.output(relay_Y_CW_pin, 0)
+            GPIO.output(relay_Y_CCW_pin, 1)
+            time.sleep(1.5)
+            # Stop
+            GPIO.output(relay_Y_CW_pin, 0)
+            GPIO.output(relay_Y_CCW_pin, 0)
+            detect_one_circle_from_webcam(min_radius, max_radius)
+
+def detect_one_circle_from_webcam(min_radius, max_radius):
+    try:
+        # Open the webcam
+        cap = cv2.VideoCapture(0)
+    except Exception as e:
+        print(f"Error opening webcam: {e}")
+        return
+
+    # Wait for 2 seconds before starting circle detection
+    print("Waiting for 2 seconds before starting circle detection...")
+    time.sleep(2)
+    print("Circle detection started!")
+
+    while True:
+        # Read a frame from the webcam
+        ret, frame = cap.read()
+
+        # Get the dimensions of the frame
+        height, width, _ = frame.shape
+
+        # Calculate the center of the frame
+        center_x = width // 2
+        center_y = height // 2
+
+        # Draw a crosshair at the center of the frame
+        cv2.drawMarker(frame, (center_x, center_y), (0, 255, 0), markerType=cv2.MARKER_CROSS, thickness=2)
+
+        # Convert the frame to grayscale
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+
+        # Apply Gaussian blur to reduce noise (optional but often helpful)
+        gray = cv2.GaussianBlur(gray, (9, 9), 2)
+
+        # Apply Hough Circle Transform
+        circles = cv2.HoughCircles(gray, cv2.HOUGH_GRADIENT, dp=1, minDist=50,
+                                   param1=100, param2=30, minRadius=min_radius, maxRadius=max_radius)
+
+        # If at least one circle is detected, draw the first one and calculate the distance to the center
+        if circles is not None and len(circles) > 0:
+            circle = np.round(circles[0, 0]).astype("int")
+            (x, y, r) = circle
+
+            # Draw the circle
+            cv2.circle(frame, (x, y), r, (0, 0, 255), 3)
+
+            # Calculate the distance from the circle center to the frame center in millimeters
+            distance_mm = ((center_x - x) / pixels_per_mm_x, (center_y - y) / pixels_per_mm_y)
+            x_deviation = (center_x - x) / pixels_per_mm_x
+            y_deviation = (center_y - y) / pixels_per_mm_y
+
+            # Print the distance
+            print(f"Distance to Center: {distance_mm} mm")
+
+        # Display the frame with the detected circle and the center
+        cv2.imshow("Detected Circle and Center", frame)
+
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
+
+    # Release the webcam and close all windows
+    cap.release()
+    cv2.destroyAllWindows()
+
+if __name__ == "__main__":
+    min_radius = 10  # Minimum circle radius to detect
+    max_radius = 100  # Maximum circle radius to detect
+    detect_one_circle_from_webcam(min_radius, max_radius)
